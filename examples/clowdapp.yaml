@@ -1,0 +1,476 @@
+---
+apiVersion: v1
+kind: Template
+metadata:
+  name: vmaas
+objects:
+- apiVersion: cloud.redhat.com/v1alpha1
+  kind: ClowdApp
+  metadata:
+    name: vmaas
+  spec:
+    envName: ${ENV_NAME}
+    deployments:
+    - name: webapp-go
+      replicas: ${{REPLICAS_WEBAPP_GO}}
+      webServices:
+        public:
+          enabled: true
+          apiPath: vmaas
+        private:
+          enabled: true
+      podSpec:
+        image: ${IMAGE}:${IMAGE_TAG}
+        command:
+          - /vmaas/entrypoint.sh
+          - webapp-go
+        env:
+        - name: GIN_MODE
+          value: ${GIN_MODE}
+        - name: GOMAXPROCS
+          value: ${GOMAXPROCS_WEBAPP}
+        - name: GOGC
+          value: ${GOGC}
+        - name: GOMEMLIMIT
+          value: ${GOMEMLIMIT}
+        - name: LOG_LEVEL
+          value: ${LOGGING_LEVEL_APP}
+        - name: LOG_STYLE
+          value: ${LOG_STYLE}
+        - name: CSAF_UNFIXED_EVAL_ENABLED
+          value: ${CSAF_UNFIXED_EVAL_ENABLED}
+        - name: CACHE_REFRESH_INTERVAL
+          value: ${CACHE_REFRESH_INTERVAL}
+        - name: ENABLE_PROFILER
+          value: ${ENABLE_PROFILER}
+        - name: VMAAS_LIB_MAX_GOROUTINES
+          value: ${VMAAS_LIB_MAX_GOROUTINES}
+        - name: SSL_CERT_DIR
+          value: ${SSL_CERT_DIR}
+        - name: NEWER_RELEASEVER_REPOS
+          value: ${NEWER_RELEASEVER_REPOS}
+        - name: NEWER_RELEASEVER_CSAF
+          value: ${NEWER_RELEASEVER_CSAF}
+        - name: ENABLE_GO_CVES
+          value: ${ENABLE_GO_CVES}
+        - name: ENABLE_GO_ERRATA
+          value: ${ENABLE_GO_ERRATA}
+        - name: ENABLE_GO_REPOS
+          value: ${ENABLE_GO_REPOS}
+        - name: ENABLE_GO_PACKAGES
+          value: ${ENABLE_GO_PACKAGES}
+        - name: ENABLE_GO_PKGLIST
+          value: ${ENABLE_GO_PKGLIST}
+        resources:
+          limits:
+            cpu: ${CPU_LIMIT_WEBAPP_GO}
+            memory: ${MEMORY_LIMIT_WEBAPP_GO}
+          requests:
+            cpu: ${CPU_REQUEST_WEBAPP_GO}
+            memory: ${MEMORY_REQUEST_WEBAPP_GO}
+
+    - name: webapp-service
+      replicas: ${{REPLICAS_WEBAPP}}
+      webServices:
+        public:
+          enabled: true
+        private:
+          enabled: false
+        metrics:
+          enabled: true
+      podSpec:
+        image: ${IMAGE}:${IMAGE_TAG}
+        command:
+          - /vmaas/entrypoint.sh
+          - webapp
+        env:
+        - name: LOGGING_LEVEL_APP
+          value: ${LOGGING_LEVEL_APP}
+        - name: LOGGING_LEVEL_LIBS
+          value: ${WEBAPP_LOGGING_LEVEL_LIBS}
+        - name: LOGGING_TYPE
+          value: ${LOGGING_TYPE}
+        - name: MAX_VMAAS_SERVERS
+          value: ${MAX_VMAAS_SERVERS}
+        - name: GZIP_RESPONSE_ENABLE
+          value: ${GZIP_RESPONSE_ENABLE}
+        - name: GZIP_COMPRESS_LEVEL
+          value: ${GZIP_COMPRESS_LEVEL}
+        - name: CW_ENABLED
+          value: ${{CW_ENABLED}}
+        - name: CLOWDER_ENABLED
+          value: ${CLOWDER_ENABLED}
+        - name: REPO_NAME_PREFIXES
+          value: ${REPO_NAME_PREFIXES}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+            scheme: HTTP
+          initialDelaySeconds: 10
+          timeoutSeconds: 1
+          periodSeconds: 30
+          successThreshold: 1
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+            scheme: HTTP
+          initialDelaySeconds: 180
+          timeoutSeconds: 1
+          periodSeconds: 30
+          successThreshold: 1
+          failureThreshold: 3
+        resources:
+          limits:
+            cpu: ${CPU_LIMIT_WEBAPP}
+            memory: ${MEMORY_LIMIT_WEBAPP}
+          requests:
+            cpu: ${CPU_REQUEST_WEBAPP}
+            memory: ${MEMORY_REQUEST_WEBAPP}
+
+    - name: reposcan-service
+      replicas: ${{REPLICAS_REPOSCAN}}
+      webServices:
+        public:
+          enabled: true
+        private:
+          enabled: true
+        metrics:
+          enabled: true
+      podSpec:
+        image: ${IMAGE}:${IMAGE_TAG}
+        initContainers:
+          - command:
+            - sh
+            - -c
+            - >-
+              exec python3.12 -m vmaas.common.wait_for_services python3.12 -m vmaas.reposcan.database.upgrade
+            env:
+            - name: GIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  key: GIT_TOKEN
+                  name: github-vmaas-bot
+            - name: CLOWDER_ENABLED
+              value: ${CLOWDER_ENABLED}
+            - name: CW_ENABLED
+              value: ${{CW_ENABLED}}
+            - name: INIT_CONTAINER
+              value: "true"
+            - name: PG_MAX_STACK_DEPTH
+              value: ${PG_MAX_STACK_DEPTH}
+        command:
+        - /vmaas/entrypoint.sh
+        - reposcan
+        resources:
+          limits:
+            cpu: ${CPU_LIMIT_REPOSCAN}
+            memory: ${MEMORY_LIMIT_REPOSCAN}
+          requests:
+            cpu: ${CPU_REQUEST_REPOSCAN}
+            memory: ${MEMORY_REQUEST_REPOSCAN}
+        volumes:
+        - name: vmaas-reposcan-tmp
+          emptyDir: {}
+        - name: vmaas-dump-data
+          persistentVolumeClaim:
+            claimName: vmaas-dump-data
+        volumeMounts:
+        - mountPath: /tmp
+          name: vmaas-reposcan-tmp
+        - mountPath: /data
+          name: vmaas-dump-data
+        env:
+        - name: BATCH_MAX_SIZE
+          value: ${BATCH_MAX_SIZE}
+        - name: BATCH_MAX_FILESIZE
+          value: ${BATCH_MAX_FILESIZE}
+        - name: CHUNK_SIZE
+          value: ${CHUNK_SIZE}
+        - name: LOGGING_LEVEL_APP
+          value: ${LOGGING_LEVEL_APP}
+        - name: LOGGING_LEVEL_LIBS
+          value: ${REPOSCAN_LOGGING_LEVEL_LIBS}
+        - name: LOGGING_TYPE
+          value: ${LOGGING_TYPE}
+        - name: REPOSCAN_SYNC_INTERVAL_MINUTES
+          value: ${REPOSCAN_SYNC_INTERVAL_MINUTES}
+        - name: RETRY_COUNT
+          value: ${RETRY_COUNT}
+        - name: THREADS
+          value: ${THREADS}
+        - name: YEAR_SINCE
+          value: ${YEAR_SINCE}
+        - name: KEEP_COPIES
+          value: ${KEEP_COPIES}
+        - name: REPOLIST_GIT
+          value: ${REPOLIST_GIT}
+        - name: REPOLIST_PATH
+          value: ${REPOLIST_GIT_PATH}
+        - name: REPOLIST_GIT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: GIT_TOKEN
+              name: github-vmaas-bot
+        - name: GIT_COMMITTER_NAME
+          value: ${GIT_COMMITTER_NAME}
+        - name: GIT_COMMITTER_EMAIL
+          value: ${GIT_COMMITTER_EMAIL}
+        - name: DEFAULT_CA_CERT
+          valueFrom:
+            secretKeyRef:
+              key: DEFAULT_CA_CERT
+              name: cdn-certificate
+        - name: DEFAULT_CERT
+          valueFrom:
+            secretKeyRef:
+              key: DEFAULT_CERT
+              name: cdn-certificate
+        - name: DEFAULT_KEY
+          valueFrom:
+            secretKeyRef:
+              key: DEFAULT_KEY
+              name: cdn-certificate
+        - name: POSTGRESQL_WRITER_PASSWORD
+          value: ${POSTGRESQL_WRITER_PASSWORD}
+        - name: POSTGRESQL_READER_PASSWORD
+          value: ${POSTGRESQL_READER_PASSWORD}
+        - name: POSTGRESQL_PASSWORD
+          value: ${POSTGRESQL_PASSWORD}
+        - name: POSTGRESQL_USER
+          value: ${POSTGRESQL_USER}
+        - name: CW_ENABLED
+          value: ${{CW_ENABLED}}
+        - name: CLOWDER_ENABLED
+          value: ${CLOWDER_ENABLED}
+        - name: REDHAT_CVEMAP_URL
+          value: ${REDHAT_CVEMAP_URL}
+        - name: VMAAS_ENV
+          value: ${ENV_NAME}
+        - name: PROMETHEUS_MULTIPROC_DIR
+          value: /tmp/prometheus_multiproc_dir
+        - name: IS_FEDRAMP
+          value: ${IS_FEDRAMP}
+        - name: CSAF_VEX_BASE_URL
+          value: ${CSAF_VEX_BASE_URL}
+        - name: CSAF_VEX_INDEX_CSV
+          value: ${CSAF_VEX_INDEX_CSV}
+        - name: CSAF_SYNC_ALL_FILES
+          value: ${CSAF_SYNC_ALL_FILES}
+        - name: CSAF_PRODUCT_STATUS_LIST
+          value: ${CSAF_PRODUCT_STATUS_LIST}
+        - name: ENABLE_PROFILER
+          value: ${ENABLE_PROFILER}
+        - name: ALLOWED_LONG_TERM_RELEASES
+          value: ${ALLOWED_LONG_TERM_RELEASES}
+
+    database:
+      name: vmaas
+      version: 16
+    objectStore:
+      - ${DB_DUMP_BUCKET}
+    testing:
+      iqePlugin: vmaas
+
+parameters:
+- name: GIN_MODE
+  description: Gin webframework mode
+  value: release
+- name: GOGC
+  description: Golang garbage collector, run GC when heap increases by ${GOGC}%
+  value: "100"
+- name: GOMEMLIMIT
+  description: Soft memory limit for the application
+  value: '2750MiB'
+- name: CPU_REQUEST_WEBAPP
+  description: CPU request for pod
+  value: '500m'
+- name: CPU_LIMIT_WEBAPP
+  description: Maximum CPU limit for pod
+  value: '1000m'
+- name: CPU_REQUEST_WEBAPP_GO
+  description: CPU request for pod
+  value: '1'
+- name: CPU_LIMIT_WEBAPP_GO
+  description: Maximum CPU limit for pod
+  value: '2'
+- name: CPU_REQUEST_REPOSCAN
+  description: CPU request for pod
+  value: '200m'
+- name: CPU_LIMIT_REPOSCAN
+  description: Maximum CPU limit for pod
+  value: '1000m'
+- name: MEMORY_REQUEST_WEBAPP
+  description: Memory request for pod
+  value: '2Gi'
+- name: MEMORY_LIMIT_WEBAPP
+  description: Maximum memory limit for pod
+  value: '4Gi'
+- name: MEMORY_REQUEST_WEBAPP_GO
+  description: Memory request for pod
+  value: '2Gi'
+- name: MEMORY_LIMIT_WEBAPP_GO
+  description: Maximum memory limit for pod
+  value: '4Gi'
+- name: MEMORY_REQUEST_REPOSCAN
+  description: Memory request for pod
+  value: '1Gi'
+- name: MEMORY_LIMIT_REPOSCAN
+  description: Maximum memory limit for pod
+  value: '2Gi'
+- name: REPLICAS_WEBAPP
+  description: Number of pods for webapp
+  value: '2'
+- name: REPLICAS_WEBAPP_GO
+  description: Number of pods for webapp-go
+  value: '2'
+- name: REPLICAS_REPOSCAN
+  description: Number of pods for reposcan
+  value: '1'
+- name: IMAGE_TAG
+  description: Version of VMaaS
+  value: latest
+- description: Image name
+  name: IMAGE
+  value: quay.io/cloudservices/vmaas-app
+- description: Determines Clowder deployment
+  name: CLOWDER_ENABLED
+  value: "True"
+- description: ClowdEnv Name
+  name: ENV_NAME
+  # value: insights-ephemeral
+  required: false
+- name: CW_ENABLED
+  description: CloudWatch enabled
+  value: 'TRUE'
+- name: LOGGING_LEVEL_APP
+  description: Logging level in app code
+  value: INFO
+- name: REPOSCAN_LOGGING_LEVEL_LIBS
+  description: Logging level in libs code
+  value: WARNING
+- name: WEBAPP_LOGGING_LEVEL_LIBS
+  description: Logging level in libs code
+  value: INFO
+- name: LOGGING_TYPE
+  description: Type of logging in webapp
+  value: OPENSHIFT
+- name: LOG_STYLE
+  description: Type of logging in webapp-go
+  value: json
+- name: MAX_VMAAS_SERVERS
+  description: Maximum servers count of webapp
+  value: '1'
+- name: GOMAXPROCS_WEBAPP
+  description: Maximum threads for webapp-go
+  value: '2'
+- name: GZIP_RESPONSE_ENABLE
+  description: Sets GZIP compression in responses
+  value: "on"
+- name: GZIP_COMPRESS_LEVEL
+  description: Level of GZIP compression in responses
+  value: "5"
+- name: BATCH_MAX_SIZE
+  description: Max size of batch in reposcan
+  value: '500'
+- name: BATCH_MAX_FILESIZE
+  description: Max filesize of batch in reposcan
+  value: '5_000_000_000'
+- name: CHUNK_SIZE
+  description: File unpacker chunk size in reposcan
+  value: '1048576'
+- name: REPOSCAN_SYNC_INTERVAL_MINUTES
+  description: Reposcan periodic sync interval
+  value: '360'
+- name: REPOLIST_GIT
+  description: Location of VMaaS assets git
+  value: 'https://github.com/RedHatInsights/vmaas-assets.git'
+- name: REPOLIST_GIT_PATH
+  description: Path/comma separated paths, denoting repolist files in the git repo
+  value: "repolist.json, epel-repolist.json"
+- name: GIT_COMMITTER_NAME
+  description: Commiter name in assets repo
+  value: 'vmaas'
+- name: GIT_COMMITTER_EMAIL
+  description: Commiter email in assets repo
+  value: 'vmaas@localhost'
+- name: RETRY_COUNT
+  description: Retry count of downloader
+  value: '3'
+- name: THREADS
+  description: Count of downloader threads
+  value: '8'
+- name: YEAR_SINCE
+  description: Year since
+  value: '2002'
+- name: KEEP_COPIES
+  description: Number of cache copies kept
+  value: '3'
+- name: POSTGRESQL_WRITER_PASSWORD
+  description: Database writer account password
+  value: vmaas_writer_pwd
+- name: POSTGRESQL_READER_PASSWORD
+  description: Database reader account password
+  value: vmaas_reader_pwd
+- name: POSTGRESQL_USER
+  description: Database user account name
+  value: vmaas_writer
+- name: POSTGRESQL_PASSWORD
+  description: Database user password
+  value: vmaas_writer_pwd
+- name: REDHAT_CVEMAP_URL
+  value: https://www.redhat.com/security/data/metrics/cvemap.xml
+- name: CSAF_UNFIXED_EVAL_ENABLED
+  value: "TRUE"
+- name: REPO_NAME_PREFIXES
+  description: Repo name prefixes to be stripped
+  value: "rhui-"
+- name: CACHE_REFRESH_INTERVAL
+  description: Interval for checking if newer cache exists, in seconds
+  value: '60'
+- name: ENABLE_PROFILER
+  value: "FALSE"
+- name: VMAAS_LIB_MAX_GOROUTINES
+  value: "20"
+- name: IS_FEDRAMP
+  value: "FALSE"
+- name: SSL_CERT_DIR
+  value: "/etc/ssl/certs:/etc/pki/tls/certs:/system/etc/security/cacerts:/cdapp/certs"
+- name: CSAF_VEX_BASE_URL
+  value: "https://access.redhat.com/security/data/csaf/v2/vex/"
+- name: CSAF_VEX_INDEX_CSV
+  value: "changes.csv"
+- name: CSAF_SYNC_ALL_FILES  # sync all csaf files, not only those which are changed
+  value: "false"
+- name: PG_MAX_STACK_DEPTH
+  value: ''
+- name: CSAF_PRODUCT_STATUS_LIST
+  value: "known_affected,fixed" # comma delimited list of products to parse
+- name: NEWER_RELEASEVER_REPOS
+  description: Enable finding updates/cves in newer releaseversion from repositories
+  value: "true"
+- name: NEWER_RELEASEVER_CSAF
+  description: Enable finding updates/cves in newer releaseversion from CSAF
+  value: "true"
+- name: DB_DUMP_BUCKET
+  value: insights-vmaas-dump-storage
+- name: ENABLE_GO_CVES
+  description: Enable go implementation of the cves endpoint
+  value: "false"
+- name: ENABLE_GO_ERRATA
+  description: Enable go implementation of the errata endpoint
+  value: "false"
+- name: ENABLE_GO_REPOS
+  description: Enable go implementation of the repos endpoint
+  value: "false"
+- name: ENABLE_GO_PACKAGES
+  description: Enable go implementation of the packages endpoint
+  value: "false"
+- name: ENABLE_GO_PKGLIST
+  description: Enable go implementation of the pkglist endpoint
+  value: "false"
+- name: ALLOWED_LONG_TERM_RELEASES
+  description: List of allowed/exposed long-term release variants in the OS exposure report
+  value: "eus,aus"

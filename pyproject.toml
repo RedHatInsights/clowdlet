@@ -1,0 +1,54 @@
+[project]
+name = "clowdlet"
+version = "0.1.0"
+description = "Generate Podman Quadlet files from your ClowdApp."
+readme = "README.md"
+license = {file = "LICENSE"}
+maintainers = [
+   { name="Jan Dobes", email = "jdobes@redhat.com" },
+]
+requires-python = ">=3.9"
+dependencies = [
+    "python-dotenv>=1.0.1",
+    "pyyaml>=6.0.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/RedHatInsights/clowdlet"
+Documentation = "https://github.com/RedHatInsights/clowdlet/blob/master/README.md"
+Repository = "https://github.com/RedHatInsights/clowdlet"
+Issues = "https://github.com/RedHatInsights/clowdlet/issues"
+
+[project.scripts]
+clowdlet = "clowdlet.cli:main"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.15.0",
+    "ruff>=0.9.10",
+    "types-pyyaml>=6.0.12.20241230",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 160
+
+[tool.ruff.lint]
+select = [
+    "ALL",
+]
+ignore = [
+    "ANN204", # init annotation
+    "D104", # init docstrings
+    "D107",
+    "D203", # blank line before class
+    "D212", # multi-line docstring style
+    "T201", # allow prints
+]
+
+[tool.mypy]
+strict = true
+packages = "clowdlet"
