@@ -69,7 +69,7 @@ objects:
             cpu: ${CPU_REQUEST_WEBAPP_GO}
             memory: ${MEMORY_REQUEST_WEBAPP_GO}
 
-    - name: webapp-service
+    - name: webapp
       replicas: ${{REPLICAS_WEBAPP}}
       webServices:
         public:
@@ -130,7 +130,7 @@ objects:
             cpu: ${CPU_REQUEST_WEBAPP}
             memory: ${MEMORY_REQUEST_WEBAPP}
 
-    - name: reposcan-service
+    - name: reposcan
       replicas: ${{REPLICAS_REPOSCAN}}
       webServices:
         public:

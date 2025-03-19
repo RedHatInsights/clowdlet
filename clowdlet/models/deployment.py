@@ -10,7 +10,7 @@ CLOWDER_CONFIG_ENV = "ACG_CONFIG"
 class Deployment:
     """Class representing single Deployment - persistently running container."""
 
-    def __init__(self, deployment_yaml: dict[str, Any], parameters: dict[str, str], default_network: str):
+    def __init__(self, deployment_yaml: dict[str, Any], parameters: dict[str, str], clowdapp_name: str):
         self.name: str = replace_vars(deployment_yaml["name"], parameters)
         self.image: str = replace_vars(deployment_yaml["podSpec"]["image"], parameters)
         self.command: str = replace_vars(" ".join(deployment_yaml["podSpec"]["command"]), parameters)
@@ -19,17 +19,19 @@ class Deployment:
             self.env[variable["name"]] = replace_vars(variable.get("value", ""), parameters)
         # Path to emulated Clowder config JSON
         self.env[CLOWDER_CONFIG_ENV] = parameters.get(CLOWDER_CONFIG_ENV, "")
-        self.network = default_network
+        self.clowdapp_name = clowdapp_name
 
     def render_quadlet_container(self) -> str:
         """Return string representing quadlet unit compatible with systemd."""
         lines = [
             "[Container]",
-            f"ContainerName={self.name}",
+            f"ContainerName={self.clowdapp_name}_{self.name}",
+            f"Network={self.clowdapp_name}.network",
             f"Image={self.image}",
-            f"Exec={self.command}",
-            f"Network={self.network}.network",
         ]
+
+        if self.command:
+            lines.append(f"Exec={self.command}")
 
         for env_key, env_val in self.env.items():
             lines.append(f"Environment={env_key}={env_val}")
